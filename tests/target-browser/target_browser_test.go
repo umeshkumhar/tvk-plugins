@@ -25,21 +25,22 @@ import (
 )
 
 type backupPlan struct {
-	BackupPlanName            string      `json:"BackupPlan Name"`
-	BackupPlanUID             string      `json:"BackupPlanUID"`
-	BackupPlanType            string      `json:"BackupPlan Type"`
-	InstanceID                string      `json:"Instance ID"`
+	BackupPlanName            string      `json:"Name"`
+	BackupPlanUID             string      `json:"UID"`
+	BackupPlanType            string      `json:"Type"`
+	InstanceID                string      `json:"TVK Instance"`
 	SuccessfulBackup          int         `json:"Successful Backup"`
-	SuccessfulBackupTimestamp metav1.Time `json:"Successful Backup Timestamp"`
+	SuccessfulBackupTimestamp metav1.Time `json:"Timestamp"`
 }
 type backup struct {
-	BackupName     string `json:"Backup Name"`
-	BackupStatus   string `json:"Backup Status"`
-	BackupSize     string `json:"Backup Size"`
-	BackupType     string `json:"bBackup Type"`
-	BackupUID      string `json:"backupUID"`
-	CreationDate   string `json:"Creation Date"`
-	TargetLocation string `json:"Target Location"`
+	Name           string      `json:"Name"`
+	UID            string      `json:"UID"`
+	Type           string      `json:"Type"`
+	Size           string      `json:"Size"`
+	Status         string      `json:"Status"`
+	BackupPlanUID  string      `json:"BackupPlan UID"`
+	CreationTime   metav1.Time `json:"Start Time"`
+	CompletionTime metav1.Time `json:"End Time"`
 }
 
 const (
@@ -64,13 +65,13 @@ const (
 	flagCaCert             = flagPrefix + cmd.CertificateAuthorityFlag
 	flagInsecureSkip       = flagPrefix + cmd.InsecureSkipTLSFlag
 	flagUseHTTPS           = flagPrefix + cmd.UseHTTPS
+	flagOutputFormat       = flagPrefix + cmd.OutputFormatFlag
 )
 
 var (
-	kubeConf, _               = internal.NewConfigFromCommandline("")
-	targetBrowserBackupStatus = []string{"Available", "Failed", "InProgress"}
-	commonArgs                = []string{flagTargetName, TargetName, flagTargetNamespace,
-		installNs, flagKubeConfig, kubeConf}
+	targetBrowserStatus = []string{"Available", "Failed", "InProgress"}
+	commonArgs          = []string{flagTargetName, TargetName, flagTargetNamespace,
+		installNs, flagOutputFormat, internal.FormatJSON}
 )
 
 var _ = Describe("Target Browser Tests", func() {
@@ -78,45 +79,34 @@ var _ = Describe("Target Browser Tests", func() {
 	Context("Global Flag's test-cases", func() {
 
 		Context("test-cases without target creation", func() {
-
-			It(fmt.Sprintf("Should consider default value if flag %s not given", flagKubeConfig), func() {
+			It(fmt.Sprintf("Should consider KUBECONFIG env variable's value if flag %s given with zero value", flagKubeConfig), func() {
 				args := []string{cmdGet, cmdBackupPlan}
 				testArgs := []string{flagTargetName, TargetName, flagTargetNamespace, installNs}
 				args = append(args, testArgs...)
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring(".kube/config: no such file or directory"))
-			})
-
-			It(fmt.Sprintf("Should consider KUBECONFIG env variable's value if flag %s given with zero value", flagKubeConfig), func() {
-				args := []string{cmdGet, cmdBackupPlan}
-				testArgs := []string{flagKubeConfig, "", flagTargetName, TargetName, flagTargetNamespace, installNs}
-				args = append(args, testArgs...)
-				command := exec.Command(targetBrowserBinaryFilePath, args...)
-				output, err := command.CombinedOutput()
-				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring(fmt.Sprintf("targets.triliovault.trilio.io \"%s\" not found", TargetName)))
+				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("targets.triliovault.trilio.io \"%s\" not found", TargetName)))
 			})
 
 			It(fmt.Sprintf("Should fail if flag %s not given", flagTargetName), func() {
 				args := []string{cmdGet, cmdBackupPlan}
-				testArgs := []string{flagTargetNamespace, installNs, flagKubeConfig, kubeConf}
+				testArgs := []string{flagTargetNamespace, installNs}
 				args = append(args, testArgs...)
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring(fmt.Sprintf("[%s] flag value cannot be empty", cmd.TargetNameFlag)))
+				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("[%s] flag value cannot be empty", cmd.TargetNameFlag)))
 			})
 
 			It(fmt.Sprintf("Should fail if flag %s is given with zero value", flagTargetName), func() {
 				args := []string{cmdGet, cmdBackupPlan}
-				testArgs := []string{flagTargetName, "", flagTargetNamespace, installNs, flagKubeConfig, kubeConf}
+				testArgs := []string{flagTargetName, "", flagTargetNamespace, installNs}
 				args = append(args, testArgs...)
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring(fmt.Sprintf("[%s] flag value cannot be empty", cmd.TargetNameFlag)))
+				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("[%s] flag value cannot be empty", cmd.TargetNameFlag)))
 			})
 
 			It(fmt.Sprintf("Should fail if flag %s & %s both are given", flagCaCert, flagInsecureSkip), func() {
@@ -125,7 +115,7 @@ var _ = Describe("Target Browser Tests", func() {
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring(fmt.Sprintf("[%s] flag cannot be provided if [%s] is provided",
+				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("[%s] flag cannot be provided if [%s] is provided",
 					cmd.InsecureSkipTLSFlag, cmd.CertificateAuthorityFlag)))
 			})
 
@@ -135,7 +125,7 @@ var _ = Describe("Target Browser Tests", func() {
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring(fmt.Sprintf("[%s] flag value cannot be empty", cmd.CertificateAuthorityFlag)))
+				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("[%s] flag value cannot be empty", cmd.CertificateAuthorityFlag)))
 			})
 		})
 
@@ -159,13 +149,13 @@ var _ = Describe("Target Browser Tests", func() {
 
 			It(fmt.Sprintf("Should fail if flag %s is given with incorrect value", flagTargetName), func() {
 				incorrectTarget := "incorrect-target-name"
-				args := []string{cmdGet, cmdBackupPlan, flagKubeConfig, kubeConf}
+				args := []string{cmdGet, cmdBackupPlan}
 				testArgs := []string{flagTargetName, incorrectTarget, flagTargetNamespace, installNs}
 				args = append(args, testArgs...)
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring(fmt.Sprintf("targets.triliovault.trilio.io \"%s\" not found", incorrectTarget)))
+				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("targets.triliovault.trilio.io \"%s\" not found", incorrectTarget)))
 			})
 
 			It("Should fail if target CR status does not have 'browsingEnabled=true'", func() {
@@ -174,18 +164,19 @@ var _ = Describe("Target Browser Tests", func() {
 				cmd := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := cmd.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring(fmt.Sprintf("browsing is not enabled for given target %s namespace %s", TargetName, installNs)))
+				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("browsing is not enabled for given"+
+					" target %s namespace %s", TargetName, installNs)))
 			})
 
 			It(fmt.Sprintf("Should consider default value if flag %s is not given", flagTargetNamespace), func() {
 				isLast = true
-				args := []string{cmdGet, cmdBackupPlan, flagKubeConfig, kubeConf}
+				args := []string{cmdGet, cmdBackupPlan}
 				testArgs := []string{flagTargetName, TargetName}
 				args = append(args, testArgs...)
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring(fmt.Sprintf("targets.triliovault.trilio.io \"%s\" not found", TargetName)))
+				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("targets.triliovault.trilio.io \"%s\" not found", TargetName)))
 			})
 		})
 
@@ -205,7 +196,7 @@ var _ = Describe("Target Browser Tests", func() {
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring(fmt.Sprintf("either tvkHost or targetBrowserPath could not"+
+				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("either tvkHost or targetBrowserPath could not"+
 					" retrieved for target %s namespace %s", TargetName, installNs)))
 			})
 
@@ -227,9 +218,9 @@ var _ = Describe("Target Browser Tests", func() {
 
 			AfterEach(func() {
 				if isLast {
-					switchTvkHostFromHTTPSToHTTP()
-					time.Sleep(time.Second * 10)
 					deleteTarget()
+					time.Sleep(time.Second * 10)
+					switchTvkHostFromHTTPSToHTTP()
 				}
 			})
 
@@ -247,7 +238,7 @@ var _ = Describe("Target Browser Tests", func() {
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring("Client.Timeout exceeded while awaiting headers"))
+				Expect(string(output)).Should(ContainSubstring("Client.Timeout exceeded while awaiting headers"))
 			})
 
 			It(fmt.Sprintf("Should fail if flag %s is provided but %s is not provided", cmd.UseHTTPS, cmd.CertificateAuthorityFlag), func() {
@@ -256,7 +247,7 @@ var _ = Describe("Target Browser Tests", func() {
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring("certificate signed by unknown authority"))
+				Expect(string(output)).Should(ContainSubstring("certificate signed by unknown authority"))
 			})
 
 			It(fmt.Sprintf("Should fail if flag %s is provided but %s is not provided", cmd.CertificateAuthorityFlag, cmd.UseHTTPS), func() {
@@ -266,7 +257,7 @@ var _ = Describe("Target Browser Tests", func() {
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(output).Should(ContainSubstring("Client.Timeout exceeded while awaiting headers"))
+				Expect(string(output)).Should(ContainSubstring("Client.Timeout exceeded while awaiting headers"))
 			})
 		})
 	})
@@ -298,7 +289,7 @@ var _ = Describe("Target Browser Tests", func() {
 
 		AfterEach(func() {
 			if isLast {
-				// delete target & remove all files & directories created for this Context - only once After all It in this context
+				//delete target & remove all files & directories created for this Context - only once After all It in this context
 				deleteTarget()
 				for _, backupPlans := range backupPlanUIDs {
 					_, err := shell.RmRf(filepath.Join(TargetLocation, backupPlans))
@@ -396,7 +387,7 @@ var _ = Describe("Target Browser Tests", func() {
 			backupData := runCmdBackup(args)
 
 			for index := 0; index < len(backupData)-1; index++ {
-				Expect(backupData[index].BackupName <= backupData[index+1].BackupName).Should(BeTrue())
+				Expect(backupData[index].Name <= backupData[index+1].Name).Should(BeTrue())
 			}
 		})
 		It("Should sort backups on name in descending order", func() {
@@ -404,7 +395,7 @@ var _ = Describe("Target Browser Tests", func() {
 			backupData := runCmdBackup(args)
 
 			for index := 0; index < len(backupData)-1; index++ {
-				Expect(backupData[index].BackupName >= backupData[index+1].BackupName).Should(BeTrue())
+				Expect(backupData[index].Name >= backupData[index+1].Name).Should(BeTrue())
 			}
 		})
 
@@ -420,12 +411,12 @@ var _ = Describe("Target Browser Tests", func() {
 
 		It("Should filter backupPlans on BackupPlan Application Type", func() {
 			// select random backup status for status filter
-			statusFilterValue := targetBrowserBackupStatus[rand.Intn(len(targetBrowserBackupStatus))]
+			statusFilterValue := targetBrowserStatus[rand.Intn(len(targetBrowserStatus))]
 			args := []string{cmdGet, cmdBackup, flagBackupPlanUIDFlag, backupPlanUIDs[1], flagBackupStatus, statusFilterValue}
 			backupData := runCmdBackup(args)
 			// compare backups status with status value passed as arg
 			for index := 0; index < len(backupData); index++ {
-				Expect(backupData[index].BackupStatus).Should(Equal(statusFilterValue))
+				Expect(backupData[index].Status).Should(Equal(statusFilterValue))
 			}
 		})
 
@@ -460,7 +451,7 @@ var _ = Describe("Target Browser Tests", func() {
 			args := []string{cmdGet, cmdBackup, backupUID}
 			backupData := runCmdBackup(args)
 			Expect(len(backupData)).To(Equal(1))
-			Expect(backupData[0].BackupUID).To(Equal(backupUID))
+			Expect(backupData[0].UID).To(Equal(backupUID))
 		})
 
 		It("Should fail for invalid backupPlan UID", func() {
@@ -476,15 +467,14 @@ var _ = Describe("Target Browser Tests", func() {
 			args := []string{cmdGet, cmdBackup, backupUID, backupUID}
 			backupData := runCmdBackup(args)
 			Expect(len(backupData)).To(Equal(2))
-			Expect(backupData[0].BackupUID).To(Equal(backupUID))
+			Expect(backupData[0].UID).To(Equal(backupUID))
 		})
 
 		It("Should get one page backup without backupPlan UID", func() {
-			isLast = true
 			args := []string{cmdGet, cmdBackup, backupUID, flagPageSize, "1"}
 			backupData := runCmdBackup(args)
 			Expect(len(backupData)).To(Equal(1))
-			Expect(backupData[0].BackupUID).To(Equal(backupUID))
+			Expect(backupData[0].UID).To(Equal(backupUID))
 		})
 
 		It("Should get zero backup", func() {
