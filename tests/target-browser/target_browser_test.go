@@ -69,9 +69,10 @@ const (
 )
 
 var (
+	kubeConf, _         = internal.NewConfigFromCommandline("")
 	targetBrowserStatus = []string{"Available", "Failed", "InProgress"}
 	commonArgs          = []string{flagTargetName, TargetName, flagTargetNamespace,
-		installNs, flagOutputFormat, internal.FormatJSON}
+		installNs, flagOutputFormat, internal.FormatJSON, flagKubeConfig, kubeConf}
 )
 
 var _ = Describe("Target Browser Tests", func() {
@@ -79,9 +80,20 @@ var _ = Describe("Target Browser Tests", func() {
 	Context("Global Flag's test-cases", func() {
 
 		Context("test-cases without target creation", func() {
-			It(fmt.Sprintf("Should consider KUBECONFIG env variable's value if flag %s given with zero value", flagKubeConfig), func() {
+
+			It(fmt.Sprintf("Should consider default value if flag %s not given", flagKubeConfig), func() {
 				args := []string{cmdGet, cmdBackupPlan}
 				testArgs := []string{flagTargetName, TargetName, flagTargetNamespace, installNs}
+				args = append(args, testArgs...)
+				command := exec.Command(targetBrowserBinaryFilePath, args...)
+				output, err := command.CombinedOutput()
+				Expect(err).Should(HaveOccurred())
+				Expect(string(output)).Should(ContainSubstring(".kube/config: no such file or directory"))
+			})
+
+			It(fmt.Sprintf("Should consider KUBECONFIG env variable's value if flag %s given with zero value", flagKubeConfig), func() {
+				args := []string{cmdGet, cmdBackupPlan}
+				testArgs := []string{flagKubeConfig, "", flagTargetName, TargetName, flagTargetNamespace, installNs}
 				args = append(args, testArgs...)
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
@@ -91,7 +103,7 @@ var _ = Describe("Target Browser Tests", func() {
 
 			It(fmt.Sprintf("Should fail if flag %s not given", flagTargetName), func() {
 				args := []string{cmdGet, cmdBackupPlan}
-				testArgs := []string{flagTargetNamespace, installNs}
+				testArgs := []string{flagTargetNamespace, installNs, flagKubeConfig, kubeConf}
 				args = append(args, testArgs...)
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
@@ -101,7 +113,7 @@ var _ = Describe("Target Browser Tests", func() {
 
 			It(fmt.Sprintf("Should fail if flag %s is given with zero value", flagTargetName), func() {
 				args := []string{cmdGet, cmdBackupPlan}
-				testArgs := []string{flagTargetName, "", flagTargetNamespace, installNs}
+				testArgs := []string{flagTargetName, "", flagTargetNamespace, installNs, flagKubeConfig, kubeConf}
 				args = append(args, testArgs...)
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := command.CombinedOutput()
@@ -149,7 +161,7 @@ var _ = Describe("Target Browser Tests", func() {
 
 			It(fmt.Sprintf("Should fail if flag %s is given with incorrect value", flagTargetName), func() {
 				incorrectTarget := "incorrect-target-name"
-				args := []string{cmdGet, cmdBackupPlan}
+				args := []string{cmdGet, cmdBackupPlan, flagKubeConfig, kubeConf}
 				testArgs := []string{flagTargetName, incorrectTarget, flagTargetNamespace, installNs}
 				args = append(args, testArgs...)
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
@@ -164,13 +176,13 @@ var _ = Describe("Target Browser Tests", func() {
 				cmd := exec.Command(targetBrowserBinaryFilePath, args...)
 				output, err := cmd.CombinedOutput()
 				Expect(err).Should(HaveOccurred())
-				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("browsing is not enabled for given"+
-					" target %s namespace %s", TargetName, installNs)))
+				Expect(string(output)).Should(ContainSubstring(fmt.Sprintf("browsing is not enabled for "+
+					"given target %s namespace %s", TargetName, installNs)))
 			})
 
 			It(fmt.Sprintf("Should consider default value if flag %s is not given", flagTargetNamespace), func() {
 				isLast = true
-				args := []string{cmdGet, cmdBackupPlan}
+				args := []string{cmdGet, cmdBackupPlan, flagKubeConfig, kubeConf}
 				testArgs := []string{flagTargetName, TargetName}
 				args = append(args, testArgs...)
 				command := exec.Command(targetBrowserBinaryFilePath, args...)
@@ -219,8 +231,8 @@ var _ = Describe("Target Browser Tests", func() {
 			AfterEach(func() {
 				if isLast {
 					deleteTarget()
-					time.Sleep(time.Second * 10)
 					switchTvkHostFromHTTPSToHTTP()
+					time.Sleep(time.Second * 10)
 				}
 			})
 
