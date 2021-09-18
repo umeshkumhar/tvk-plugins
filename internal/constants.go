@@ -21,10 +21,19 @@ const (
 	BackupPlanAPIPath         = "backupplan"
 	BackupAPIPath             = "backup"
 	MetadataAPIPath           = "metadata"
+	ResourceMetadataAPIPath   = "resource-metadata"
+	TrilioResourcesAPIPath    = "trilio-resources"
 	Results                   = "results"
 	FormatYAML                = "yaml"
 	FormatJSON                = "json"
 	FormatWIDE                = "wide"
+	SingleNamespace           = "SingleNamespace"
+	MultiNamespace            = "MultiNamespace"
+	BackupKind                = "Backup"
+	BackupPlanKind            = "BackupPlan"
+	ClusterBackupKind         = "ClusterBackup"
+	ClusterBackupPlanKind     = "ClusterBackupPlan"
+	IngressKind               = "Ingress"
 )
 
 var (

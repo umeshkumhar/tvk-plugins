@@ -1,6 +1,7 @@
 package targetbrowsertest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,10 +17,11 @@ import (
 	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
+	"github.com/thedevsaddam/gojsonq"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/api/extensions/v1beta1"
+	"k8s.io/api/networking/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,12 +29,12 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/trilioData/tvk-plugins/internal"
 	"github.com/trilioData/tvk-plugins/internal/utils/shell"
+	targetbrowser "github.com/trilioData/tvk-plugins/tools/target-browser"
 )
 
 var (
@@ -59,6 +61,7 @@ var (
 	testDataDirRelPath          = filepath.Join(projectRoot, "tests", "target-browser", "test-data")
 	targetBrowserBinaryDir      = filepath.Join(projectRoot, DistDir, TargetBrowserDir)
 	targetBrowserBinaryFilePath = filepath.Join(targetBrowserBinaryDir, TargetBrowserBinaryName)
+	targetYamlPath              = filepath.Join(testDataDirRelPath, targetYaml)
 )
 
 func TestTargetBrowser(t *testing.T) {
@@ -74,10 +77,14 @@ var _ = BeforeSuite(func() {
 
 	scheme := runtime.NewScheme()
 	_ = clientGoScheme.AddToScheme(scheme)
-	config := config.GetConfigOrDie()
-	var err error
-	k8sClient, err = client.New(config, client.Options{Scheme: scheme})
+
+	kubeConfig, err := internal.NewConfigFromCommandline("")
 	Expect(err).Should(BeNil())
+
+	acc, err := internal.NewAccessor(kubeConfig, scheme)
+	Expect(err).Should(BeNil())
+
+	k8sClient = acc.GetRuntimeClient()
 	Expect(k8sClient).ToNot(BeNil())
 
 	Expect(os.Setenv(NFSServerBasePath, TargetBrowserDataPath)).To(BeNil())
@@ -149,7 +156,7 @@ func changeControlPlanePollingPeriod() {
 }
 
 func createTarget(enableBrowsing bool) {
-	targetYamlPath := filepath.Join(testDataDirRelPath, targetYaml)
+
 	if !enableBrowsing {
 		Expect(updateYAMLs(map[string]string{"enableBrowsing: true": "enableBrowsing: false"}, targetYamlPath)).To(BeNil())
 	}
@@ -170,18 +177,22 @@ func createTarget(enableBrowsing bool) {
 	log.Infof("Created target %s successfully", TargetName)
 }
 
-func deleteTarget() {
+func deleteTarget(enableBrowsing bool) {
+	if enableBrowsing {
+		Expect(updateYAMLs(map[string]string{"enableBrowsing: false": "enableBrowsing: true"}, targetYamlPath)).To(BeNil())
+	}
 	targetCmd := fmt.Sprintf("kubectl delete -f %s --namespace %s", filepath.Join(testDataDirRelPath, targetYaml), installNs)
 	command := exec.Command("bash", "-c", targetCmd)
 	out, err := command.CombinedOutput()
 	log.Error(string(out))
 	if err != nil {
-		Fail(fmt.Sprintf("target creation failed %s.", err.Error()))
+		Fail(fmt.Sprintf("target deletion failed %s.", err.Error()))
 	}
+	checkPvcDeleted(ctx, k8sClient, installNs)
 	log.Infof("Deleted target %s successfully", TargetName)
 }
 
-func runCmdBackupPlan(args []string) []backupPlan {
+func runCmdBackupPlan(args []string) []targetbrowser.BackupPlan {
 	args = append(args, commonArgs...)
 	var output []byte
 	var err error
@@ -192,19 +203,43 @@ func runCmdBackupPlan(args []string) []backupPlan {
 		if err != nil {
 			log.Errorf(fmt.Sprintf("Error to execute command %s", err.Error()))
 		}
-		log.Infof("BackupPlan data is %s", output)
+		log.Debugf("BackupPlan data is %s", output)
 		return strings.Contains(string(output), "502 Bad Gateway")
 	}, apiRetryTimeout, interval).Should(BeFalse())
 
-	var backupPlanData []backupPlan
-	err = json.Unmarshal(output, &backupPlanData)
-	if err != nil {
-		Fail(fmt.Sprintf("Failed to get backupplan data from target browser %s.", err.Error()))
-	}
-	return backupPlanData
+	finalOutput := string(output)
+	var backupPlanList targetbrowser.BackupPlanList
+	Eventually(func() error {
+		if len(finalOutput) == 0 {
+			return nil
+		}
+
+		jsq := gojsonq.New().FromString(finalOutput).From(internal.Results).Select(targetbrowser.BackupPlanSelector...)
+		if err = jsq.Error(); err != nil {
+			log.Warn(err.Error())
+			if strings.Contains(err.Error(), "looking for beginning of value") {
+				slicedStrings := strings.SplitAfter(finalOutput, "\n")
+				finalOutput = strings.Join(slicedStrings[1:], "\n")
+				return err
+			}
+			Fail(err.Error())
+		}
+
+		var respBytes bytes.Buffer
+		jsq.Writer(&respBytes)
+
+		err = json.Unmarshal(respBytes.Bytes(), &backupPlanList.Results)
+		if err != nil {
+			Fail(fmt.Sprintf("Failed to unmarshal backupplan command's data %s", err.Error()))
+		}
+
+		return nil
+	}, time.Second*30, interval).Should(BeNil())
+
+	return backupPlanList.Results
 }
 
-func runCmdBackup(args []string) []backup {
+func runCmdBackup(args []string) []targetbrowser.Backup {
 	var output []byte
 	var err error
 	args = append(args, commonArgs...)
@@ -215,16 +250,40 @@ func runCmdBackup(args []string) []backup {
 		if err != nil {
 			log.Infof(fmt.Sprintf("Error to execute command %s", err.Error()))
 		}
-		log.Infof("Backup data is %s", output)
+		log.Debugf("Backup data is %s", output)
 		return strings.Contains(string(output), "502 Bad Gateway")
 	}, apiRetryTimeout, interval).Should(BeFalse())
 
-	var backupData []backup
-	err = json.Unmarshal(output, &backupData)
-	if err != nil {
-		Fail(fmt.Sprintf("Failed to get backup data from target browser %s.", err.Error()))
-	}
-	return backupData
+	finalOutput := string(output)
+	var backupList targetbrowser.BackupList
+	Eventually(func() error {
+		if len(finalOutput) == 0 {
+			return nil
+		}
+
+		jsq := gojsonq.New().FromString(finalOutput).From(internal.Results).Select(targetbrowser.BackupSelector...)
+		if err = jsq.Error(); err != nil {
+			log.Warn(err.Error())
+			if strings.Contains(err.Error(), "looking for beginning of value") {
+				slicedStrings := strings.SplitAfter(finalOutput, "\n")
+				finalOutput = strings.Join(slicedStrings[1:], "\n")
+				return err
+			}
+			Fail(err.Error())
+		}
+
+		var respBytes bytes.Buffer
+		jsq.Writer(&respBytes)
+
+		err = json.Unmarshal(respBytes.Bytes(), &backupList.Results)
+		if err != nil {
+			Fail(fmt.Sprintf("Failed to unmarshal backup command's output %s.", err.Error()))
+		}
+
+		return nil
+	}, time.Second*30, interval).Should(BeNil())
+
+	return backupList.Results
 }
 
 func switchTvkHostFromHTTPToHTTPS() {
@@ -271,7 +330,7 @@ func createTLSSecret(secretName string) {
 	log.Infof("created TLS type secret %s", secretName)
 }
 
-func deleteTargetBrowserIngress() {
+func getTargetBrowserIngress() *v1beta1.Ingress {
 
 	target := getTarget(ctx, installNs, k8sClient)
 
@@ -284,12 +343,11 @@ func deleteTargetBrowserIngress() {
 		ownerRefs := ing.GetOwnerReferences()
 		for j := range ownerRefs {
 			ownerRef := ownerRefs[j]
-			if ownerRef.Kind == internal.TargetKind && ownerRef.UID == target.GetUID() {
-				err = k8sClient.Delete(ctx, &ing, &client.DeleteOptions{})
-				Expect(err).To(BeNil())
-				log.Infof("deleted ingress %s namespace %s", ing.Name, installNs)
-				break
+			if ownerRef.Kind == target.GetKind() && ownerRef.UID == target.GetUID() {
+				return &ing
 			}
 		}
 	}
+
+	return nil
 }

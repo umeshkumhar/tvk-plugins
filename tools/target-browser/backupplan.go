@@ -3,6 +3,7 @@ package targetbrowser
 import (
 	"bytes"
 	"encoding/json"
+	"path"
 
 	"github.com/thedevsaddam/gojsonq"
 
@@ -15,20 +16,21 @@ import (
 // BackupPlanListOptions for backupPlan
 type BackupPlanListOptions struct {
 	CommonListOptions
-	TvkInstanceUID string `url:"tvkInstanceUID,omitempty"`
 }
 
 // BackupPlan struct stores extracted fields from actual BackupPlan API GET response
 type BackupPlan struct {
 	Name                      string      `json:"Name"`
+	Kind                      string      `json:"Kind"`
 	UID                       string      `json:"UID"`
 	Type                      string      `json:"Type"`
 	TvkInstanceID             string      `json:"TVK Instance"`
 	SuccessfulBackup          int         `json:"Successful Backup"`
 	SuccessfulBackupTimestamp metav1.Time `json:"Successful Backup Timestamp"`
+	CreationTime              string      `json:"Creation Time"`
 }
 
-// BackupPlan struct stores extracted fields from actual BackupPlan API LIST response
+// BackupPlanList struct stores extracted fields from actual BackupPlan API LIST response
 type BackupPlanList struct {
 	Metadata *ListMetadata `json:"metadata"`
 	Results  []BackupPlan  `json:"results"`
@@ -42,7 +44,7 @@ func (auth *AuthInfo) GetBackupPlans(options *BackupPlanListOptions, backupPlanU
 	}
 
 	queryParam := values.Encode()
-	response, err := auth.TriggerAPIs(queryParam, internal.BackupPlanAPIPath, backupPlanSelector, backupPlanUIDs)
+	response, err := auth.TriggerAPIs(queryParam, internal.BackupPlanAPIPath, backupPlanUIDs)
 	if err != nil {
 		return err
 	}
@@ -57,7 +59,7 @@ func (auth *AuthInfo) GetBackupPlans(options *BackupPlanListOptions, backupPlanU
 func normalizeBPlanDataToRowsAndColumns(response string, wideOutput bool) ([]metav1.TableRow, []metav1.TableColumnDefinition, error) {
 
 	var respBytes bytes.Buffer
-	gojsonq.New().FromString(response).From(internal.Results).Select(backupPlanSelector...).Writer(&respBytes)
+	gojsonq.New().FromString(response).From(internal.Results).Select(BackupPlanSelector...).Writer(&respBytes)
 
 	var bPlanList BackupPlanList
 	err := json.Unmarshal(respBytes.Bytes(), &bPlanList.Results)
@@ -73,7 +75,8 @@ func normalizeBPlanDataToRowsAndColumns(response string, wideOutput bool) ([]met
 	for i := range bPlanList.Results {
 		bPlan := bPlanList.Results[i]
 		rows = append(rows, metav1.TableRow{
-			Cells: []interface{}{bPlan.Name, bPlan.UID, bPlan.Type, bPlan.TvkInstanceID, bPlan.SuccessfulBackup, bPlan.SuccessfulBackupTimestamp},
+			Cells: []interface{}{bPlan.Name, bPlan.Kind, bPlan.UID, bPlan.Type, bPlan.TvkInstanceID, bPlan.SuccessfulBackup,
+				bPlan.SuccessfulBackupTimestamp, bPlan.CreationTime},
 		})
 	}
 
@@ -81,18 +84,30 @@ func normalizeBPlanDataToRowsAndColumns(response string, wideOutput bool) ([]met
 	if wideOutput {
 		columns = getColumnDefinitions(bPlanList.Results[0], 0)
 	} else {
-		columns = getColumnDefinitions(bPlanList.Results[0], 4)
+		columns = getColumnDefinitions(bPlanList.Results[0], 5)
 	}
 
 	return rows, columns, err
 }
 
 // TriggerAPIs returns backup or backupPlan list stored on mounted target with available options
-func (auth *AuthInfo) TriggerAPIs(queryParam, apiPath string, selector, args []string) ([]byte, error) {
+func (auth *AuthInfo) TriggerAPIs(queryParam, apiPath string, args []string) ([]byte, error) {
+
+	var (
+		resp, body []byte
+		err        error
+	)
+
 	if len(args) > 0 {
 		var respData []interface{}
 		for _, uid := range args {
-			resp, err := auth.TriggerAPI(uid, queryParam, apiPath, selector)
+			switch apiPath {
+			case internal.TrilioResourcesAPIPath:
+				resp, err = auth.TriggerAPI(getTrilioResourcesAPIPath(uid), queryParam)
+			default:
+				resp, err = auth.TriggerAPI(path.Join(apiPath, uid), queryParam)
+			}
+
 			if err != nil {
 				return nil, err
 			}
@@ -104,7 +119,7 @@ func (auth *AuthInfo) TriggerAPIs(queryParam, apiPath string, selector, args []s
 			respData = append(respData, result)
 		}
 
-		body, err := json.MarshalIndent(respData, "", "  ")
+		body, err = json.MarshalIndent(respData, "", "  ")
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +132,7 @@ func (auth *AuthInfo) TriggerAPIs(queryParam, apiPath string, selector, args []s
 		return body, nil
 	}
 
-	resp, err := auth.TriggerAPI("", queryParam, apiPath, selector)
+	resp, err = auth.TriggerAPI(apiPath, queryParam)
 	if err != nil {
 		return nil, err
 	}

@@ -17,8 +17,9 @@ CHECK='\xE2\x9C\x94'
 CROSS='\xE2\x9D\x8C'
 
 MIN_HELM_VERSION="3.0.0"
-MIN_K8S_VERSION="1.17.0"
+MIN_K8S_VERSION="1.18.0"
 PREFLIGHT_RUN_SUCCESS=true
+STORAGE_SNAPSHOT_CLASS_CHECK_SUCCESS=true
 
 # shellcheck disable=SC2018
 RANDOM_STRING=$(
@@ -303,6 +304,7 @@ metadata:
   name: ${DNS_UTILS}
   labels:
     trilio: tvk-preflight
+    preflight-run: ${RANDOM_STRING}
 spec:
   containers:
   - name: dnsutils
@@ -314,7 +316,7 @@ spec:
   restartPolicy: Always
 EOF
 
-  kubectl wait --for=condition=ready --timeout=2m pod/"${DNS_UTILS}" &>/dev/null
+  kubectl wait --for=condition=ready --timeout=5m pod/"${DNS_UTILS}" &>/dev/null
   kubectl exec -it "${DNS_UTILS}" -- nslookup kubernetes.default &>/dev/null
   # shellcheck disable=SC2181
   if [[ $? -eq 0 ]]; then
@@ -334,12 +336,6 @@ check_volume_snapshot() {
   local retries=45
   local sleep=5
 
-  # shellcheck disable=SC2143
-  if [[ -z "${SNAPSHOT_CLASS}" ]]; then
-    echo -e "${RED} ${CROSS} Volume snapshot class having same driver as StorageClass's provisioner not found in cluster${NC}\n"
-    return ${err_status}
-  fi
-
   echo -e "${BROWN} Creating source pod and pvc for volume-snapshot check${NC}\n"
 
   cat <<EOF | kubectl apply -f - &>/dev/null
@@ -349,6 +345,7 @@ metadata:
   name: ${SOURCE_PVC}
   labels:
     trilio: tvk-preflight
+    preflight-run: ${RANDOM_STRING}
 spec:
   accessModes:
     - ReadWriteOnce
@@ -363,6 +360,7 @@ metadata:
   name: ${SOURCE_POD}
   labels:
     trilio: tvk-preflight
+    preflight-run: ${RANDOM_STRING}
 spec:
   containers:
   - name: busybox
@@ -379,12 +377,12 @@ spec:
       readOnly: false
 EOF
 
-  kubectl wait --for=condition=ready --timeout=2m pod/"${SOURCE_POD}" &>/dev/null
+  kubectl wait --for=condition=ready --timeout=5m pod/"${SOURCE_POD}" &>/dev/null
   # shellcheck disable=SC2181
   if [[ $? -eq 0 ]]; then
-    echo -e "${GREEN} ${CHECK} Created source pod and pvc${NC}\n"
+    echo -e "${GREEN} ${CHECK} Successfully created source pod [Ready] and pvc ${NC}\n"
   else
-    echo -e "${RED} ${CROSS} Error creating source pod and pvc${NC}\n"
+    echo -e "${RED} ${CROSS} Error waiting for source pod and pvc to be in [Ready] state${NC}\n"
     return ${err_status}
   fi
 
@@ -410,6 +408,7 @@ metadata:
   name: ${VOLUME_SNAP_SRC}
   labels:
     trilio: tvk-preflight
+    preflight-run: ${RANDOM_STRING}
 spec:
   volumeSnapshotClassName: ${SNAPSHOT_CLASS}
   source:
@@ -447,6 +446,7 @@ metadata:
   name: ${RESTORE_PVC}
   labels:
     trilio: tvk-preflight
+    preflight-run: ${RANDOM_STRING}
 spec:
   accessModes:
     - ReadWriteOnce
@@ -465,6 +465,7 @@ metadata:
   name: ${RESTORE_POD}
   labels:
     trilio: tvk-preflight
+    preflight-run: ${RANDOM_STRING}
 spec:
   containers:
   - name: busybox
@@ -482,12 +483,12 @@ spec:
       readOnly: false
 EOF
 
-  kubectl wait --for=condition=ready --timeout=2m pod/"${RESTORE_POD}" &>/dev/null
+  kubectl wait --for=condition=ready --timeout=5m pod/"${RESTORE_POD}" &>/dev/null
   # shellcheck disable=SC2181
   if [[ $? -eq 0 ]]; then
-    echo -e "${GREEN} ${CHECK} Created restore pod from volume snapshot${NC}\n"
+    echo -e "${GREEN} ${CHECK} Successfully created restore pod [Ready] from volume snapshot${NC}\n"
   else
-    echo -e "${RED_BOLD} ${CROSS} Error creating pod and pvc from volume snapshot${NC}\n"
+    echo -e "${RED_BOLD} ${CROSS} Error waiting for restore pod and pvc from volume snapshot to be in [Ready] state${NC}\n"
     return ${err_status}
   fi
 
@@ -519,6 +520,7 @@ metadata:
   name: ${UNUSED_VOLUME_SNAP_SRC}
   labels:
     trilio: tvk-preflight
+    preflight-run: ${RANDOM_STRING}
 spec:
   volumeSnapshotClassName: ${SNAPSHOT_CLASS}
   source:
@@ -556,6 +558,7 @@ metadata:
   name: ${UNUSED_RESTORE_PVC}
   labels:
     trilio: tvk-preflight
+    preflight-run: ${RANDOM_STRING}
 spec:
   accessModes:
     - ReadWriteOnce
@@ -574,6 +577,7 @@ metadata:
   name: ${UNUSED_RESTORE_POD}
   labels:
     trilio: tvk-preflight
+    preflight-run: ${RANDOM_STRING}
 spec:
   containers:
   - name: busybox
@@ -591,12 +595,12 @@ spec:
       readOnly: false
 EOF
 
-  kubectl wait --for=condition=ready --timeout=2m pod/"${UNUSED_RESTORE_POD}" &>/dev/null
+  kubectl wait --for=condition=ready --timeout=5m pod/"${UNUSED_RESTORE_POD}" &>/dev/null
   # shellcheck disable=SC2181
   if [[ $? -eq 0 ]]; then
-    echo -e "${GREEN} ${CHECK} Created restore pod from volume snapshot of unused pv${NC}\n"
+    echo -e "${GREEN} ${CHECK} Successfully created restore pod [Ready] from volume snapshot of unused pv${NC}\n"
   else
-    echo -e "${RED_BOLD} ${CROSS} Error creating pod and pvc from volume snapshot of unused pv${NC}\n"
+    echo -e "${RED_BOLD} ${CROSS} Error waiting for restore pod and pvc from volume snapshot of unused pv to be in [Ready] state${NC}\n"
     return ${err_status}
   fi
 
@@ -615,7 +619,7 @@ EOF
 cleanup() {
   local exit_status=0
 
-  echo -e "${LIGHT_BLUE} Cleaning up residual resources...${NC}\n"
+  echo -e "\n${LIGHT_BLUE}Cleaning up residual resources...${NC}"
 
   declare -a pvc=("${SOURCE_PVC}" "${RESTORE_PVC}" "${UNUSED_RESTORE_PVC}")
   for res in "${pvc[@]}"; do
@@ -631,7 +635,7 @@ cleanup() {
 
   kubectl delete --force --grace-period=0 pod "${SOURCE_POD}" "${RESTORE_POD}" "${UNUSED_RESTORE_POD}" &>/dev/null || true
 
-  kubectl delete all -l trilio=tvk-preflight --force --grace-period=0 &>/dev/null || true
+  kubectl delete all -l preflight-run="${RANDOM_STRING}" --force --grace-period=0 &>/dev/null || true
 
   echo -e "\n${GREEN} ${CHECK} Cleaned up all the resources${NC}\n"
 
@@ -695,6 +699,7 @@ fi
 check_storage_snapshot_class
 retCode=$?
 if [[ retCode -ne 0 ]]; then
+  STORAGE_SNAPSHOT_CLASS_CHECK_SUCCESS=false
   PREFLIGHT_RUN_SUCCESS=false
 fi
 
@@ -710,10 +715,14 @@ if [[ retCode -ne 0 ]]; then
   PREFLIGHT_RUN_SUCCESS=false
 fi
 
-check_volume_snapshot
-retCode=$?
-if [[ retCode -ne 0 ]]; then
-  PREFLIGHT_RUN_SUCCESS=false
+if [ $STORAGE_SNAPSHOT_CLASS_CHECK_SUCCESS == "true" ]; then
+  check_volume_snapshot
+  retCode=$?
+  if [[ retCode -ne 0 ]]; then
+    PREFLIGHT_RUN_SUCCESS=false
+  fi
+else
+  echo -e "${LIGHT_BLUE}Skipping 'VOLUME_SNAPSHOT' check as 'STORAGE_SNAPSHOT_CLASS' preflight check failed${NC}\n"
 fi
 
 # Print status of Pre-flight checks

@@ -73,15 +73,24 @@ kubectl tvk-target-browser get metadata --help
   ```bash
   kubectl tvk-target-browser get backup --backup-plan-uid <uid> --target-name <name> --target-namespace <namespace>
   ```
+
  - Get list of backups for backupPlan:
 
   ```bash
   kubectl tvk-target-browser get backup --backup-plan-uid <uid> --target-name <name> --target-namespace <namespace>
   ```
-  
+
   - Get specific backup:
   ```bash
   kubectl tvk-target-browser get backup <backup-uid> --target-name <name> --target-namespace <namespace>
+  ```
+  - List of backups in Single Namespace:
+  ```bash
+  kubectl tvk-target-browser get backup --operation-scope SingleNamespace --target-name <name> --target-namespace <namespace>
+  ```
+  - List of backups in Multi Namespace/Cluster Scope:
+  ```bash
+   kubectl tvk-target-browser get backup --operation-scope MultiNamespace --target-name <name> --target-namespace <namespace>
   ```
 
   - Get list of backupPlans:
@@ -93,10 +102,43 @@ kubectl tvk-target-browser get metadata --help
   ```bash
   kubectl tvk-target-browser get backupPlan <backup-plan-uid> --target-name <name> --target-namespace <namespace>
   ```
+  - List of backupPlans in Single Namespace:
+  ```bash
+  kubectl tvk-target-browser get backupPlan --operation-scope SingleNamespace --target-name <name> --target-namespace <namespace>
+  ```
+  - List of backupPlans in Multi Namespace/Cluster Scope:
+  ```bash
+  kubectl tvk-target-browser get backupPlan --operation-scope MultiNamespace --target-name <name> --target-namespace <namespace>
+  ```
 
   - Get metadata of specific backup:
   ```bash
   kubectl tvk-target-browser get metadata --backup-uid <uid> --backup-plan-uid <uid> --target-name <name> --target-namespace <namespace>
   ```
+
+  - Get resource metadata of specific backup
+  ```bash
+  kubectl tvk-target-browser get resource-metadata --backup-uid <uid> --backup-plan-uid <uid> --target-name <name> --target-namespace <namespace> --group <group> --version <version> --kind <kind> --name <resource-name>
+  ```
+
+  - Get trilio resources for specific backup
+  ```bash
+  kubectl tvk-target-browser get backup trilio-resources <backup-uid> --backup-plan-uid <uid> --kinds ClusterBackupPlan,Backup,Hook --target-name <name> --target-namespace <namespace>
+  ```
+
+  - List of backups: filter by [expirationStartTime] and [expirationEndTime]
+  ```bash
+  kubectl tvk-target-browser get backup --expiration-start-time <expiration-start-time> --expiration-end-time <expiration-end-time> --target-name <name> --target-namespace <namespace>
+  ```
+
+  - List of backups: filter by [creationStartTime] and [creationEndTime]
+  ```bash
+  kubectl tvk-target-browser get backup --creation-start-time <creation-start-time> --creation-end-time <creation-end-time> --target-name <name> --target-namespace <namespace>
+  ```
+
+  - List of backupPlans: filter by [creationStartTime] and [creationEndTime]
+```bash
+  kubectl tvk-target-browser get backupPlan --creation-start-time <creation-start-time> --creation-end-time <creation-end-time>--target-name <name> --target-namespace <namespace>
+```    
 
 Find more examples and usage of each command & flag with `--help` for each `tvk-target-browser` command. Refer, `Usage` section.

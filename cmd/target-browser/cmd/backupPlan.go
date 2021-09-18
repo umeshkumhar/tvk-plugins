@@ -36,20 +36,33 @@ using available flags and options.`,
   
   # List of backupPlans: filter by [tvkInstanceUID]
   kubectl tvk-target-browser get backupPlan --tvk-instance-uid <uid> --target-name <name> --target-namespace <namespace>
+ 
+  # List of backupPlans in Single Namespace: filter by [operationScope]
+  kubectl tvk-target-browser get backupPlan --operation-scope SingleNamespace --target-name <name> --target-namespace <namespace>
+
+  # List of backupPlans in Multi Namespace/Cluster Scope: filter by [operationScope]
+  kubectl tvk-target-browser get backupPlan --operation-scope MultiNamespace --target-name <name> --target-namespace <namespace>
+
+  # List of backupPlans: filter by [creationStartTime] and [creationEndTime]
+  kubectl tvk-target-browser get backupPlan --creation-start-time <creation-start-time> --creation-end-time <creation-end-time>--target-name <name> --target-namespace <namespace>
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return getBackupPlanList(args)
 		},
 	}
-	cmd.Flags().StringVar(&tvkInstanceUID, TvkInstanceUIDFlag, tvkInstanceUIDDefault, tvkInstanceUIDUsage)
+
 	return cmd
 }
 
 func getBackupPlanList(args []string) error {
+	if len(args) > 1 {
+		args = removeDuplicates(args)
+	}
+
 	bpOptions := targetBrowser.BackupPlanListOptions{
 		CommonListOptions: commonOptions,
-		TvkInstanceUID:    tvkInstanceUID,
 	}
+
 	err := targetBrowserAuthConfig.GetBackupPlans(&bpOptions, args)
 	if err != nil {
 		return err

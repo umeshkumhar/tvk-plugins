@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -31,9 +33,6 @@ which retrieves single object or list of objects of that resource.`,
 
   # Metadata of specific backup object
   kubectl tvk-target-browser get metadata --backup-uid <uid> --backup-plan-uid <uid> --target-name <name> --target-namespace <namespace>
-
-  # Specific metadata
-  kubectl tvk-target-browser get metadata --backup-uid <uid> --backup-plan-uid <uid> --target-name <name> --target-namespace <namespace>
 `,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		var err error
@@ -47,20 +46,28 @@ which retrieves single object or list of objects of that resource.`,
 		}
 
 		commonOptions = targetbrowser.CommonListOptions{
-			Page:         pages,
-			PageSize:     pageSize,
-			OrderBy:      orderBy,
-			OutputFormat: outputFormat,
+			CreationEndTimestamp:   creationEndTime,
+			CreationStartTimestamp: creationStartTime,
+			Page:                   pages,
+			PageSize:               pageSize,
+			OrderBy:                orderBy,
+			OutputFormat:           outputFormat,
+			OperationScope:         operationScope,
+			TvkInstanceUID:         tvkInstanceUID,
 		}
-
 		return nil
 	},
 }
 
 func init() {
 	getCmd.PersistentFlags().IntVar(&pages, pagesFlag, pagesDefault, pagesUsage)
-	getCmd.PersistentFlags().IntVar(&pageSize, PageSizeFlag, pageSizeDefault, pageSizeUsage)
+	getCmd.PersistentFlags().IntVar(&pageSize, PageSizeFlag, PageSizeDefault, pageSizeUsage)
 	getCmd.PersistentFlags().StringVar(&orderBy, OrderByFlag, orderByDefault, orderByUsage)
+	getCmd.PersistentFlags().StringVar(&operationScope, OperationScopeFlag, "", operationScopeUsage)
+	getCmd.PersistentFlags().StringVar(&tvkInstanceUID, TvkInstanceUIDFlag, "", tvkInstanceUIDUsage)
+	getCmd.PersistentFlags().StringVar(&creationStartTime, CreationStartTimeFlag, "", creationStartTimeUsage)
+	getCmd.PersistentFlags().StringVar(&creationEndTime, CreationEndTimeFlag, "", creationEndTimeUsage)
+
 	rootCmd.AddCommand(getCmd)
 }
 
@@ -80,6 +87,44 @@ func validateInput(cmd *cobra.Command) error {
 
 	if outputFormat != "" && !internal.AllowedOutputFormats.Has(outputFormat) {
 		return fmt.Errorf("[%s] flag invalid value. Usage - %s", OutputFormatFlag, OutputFormatFlagUsage)
+	}
+
+	if operationScope != "" {
+		if strings.EqualFold(operationScope, internal.SingleNamespace) {
+			operationScope = internal.SingleNamespace
+		} else if strings.EqualFold(operationScope, internal.MultiNamespace) {
+			operationScope = internal.MultiNamespace
+		} else {
+			return fmt.Errorf("[%s] flag invalid value. Usage - %s", OperationScopeFlag, operationScopeUsage)
+		}
+	}
+	if (cmd.Flags().Changed(CreationEndTimeFlag) || cmd.Flags().Changed(CreationStartTimeFlag)) && creationStartTime == "" {
+		return fmt.Errorf("[%s] flag value cannot be empty", CreationStartTimeFlag)
+	}
+
+	var ts *time.Time
+	var err error
+	if creationStartTime != "" {
+		ts, err = parseTimestamp(creationStartTime)
+		if err != nil {
+			return fmt.Errorf("[%s] flag invalid value. Usage - %s", CreationStartTimeFlag, creationStartTimeUsage)
+		}
+		creationStartTime = ts.Format(time.RFC3339)
+	}
+
+	if creationEndTime != "" {
+		ts, err = parseTimestamp(creationEndTime)
+		if err != nil {
+			return fmt.Errorf("[%s] flag invalid value. Usage - %s", CreationEndTimeFlag, creationEndTimeUsage)
+		}
+		creationEndTime = ts.Format(time.RFC3339)
+	}
+	if cmd.Flags().Changed(CreationStartTimeFlag) && creationEndTime == "" {
+		creationEndTime = time.Now().Format(time.RFC3339)
+	}
+	if creationStartTime == creationEndTime && creationStartTime != "" {
+		return fmt.Errorf("[%s] and [%s] flag values %s and %s can't be same", CreationStartTimeFlag,
+			CreationEndTimeFlag, creationStartTime, creationEndTime)
 	}
 
 	return nil
